@@ -21,6 +21,7 @@ from src.ui.health import compute_health_state
 from src.ui.components.header import render_global_header
 from src.ui.components.system_halt import render_system_halt
 from src.ui.components.asset_panel import render_asset_panel
+from src.ui.components.positioning_panel import render_positioning_section
 from src.ui.components.alerts_panel import render_alerts_panel
 from src.ui.components.detail_section import render_detail_section
 
@@ -100,13 +101,18 @@ def main():
 
         st.markdown("---")
 
-        # 6. Render alerts panel
+        # 6. Render current positioning panel (context only - not behavioral)
+        render_positioning_section(['HYPE', 'BTC', 'ETH'])
+
+        st.markdown("---")
+
+        # 7. Render alerts panel
         alerts = get_recent_alerts(hours=24, limit=5)
         render_alerts_panel(alerts)
 
         st.markdown("---")
 
-        # 7. Render detail section
+        # 8. Render detail section
         st.subheader("Signal Details")
 
         # Asset selector (alternative to buttons)

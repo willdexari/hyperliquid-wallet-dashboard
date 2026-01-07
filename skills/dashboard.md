@@ -54,9 +54,12 @@ If the UI causes hesitation, second-guessing, or overtrading, it is wrong.
 │ Dispersion: Low     │ Dispersion: High    │ Dispersion: Low     │
 │ Exit Cluster: Low   │ Exit Cluster: Med   │ Exit Cluster: Low   │
 ├─────────────────────┴─────────────────────┴─────────────────────┤
-│ [C] ALERTS - Recent alerts (max 5 from last 24h)                │
+│ [C] CURRENT POSITIONING - What wallets are holding (context)    │
+│ Net Exposure / Long-Short Ratio / Breakdown / Concentration     │
 ├─────────────────────────────────────────────────────────────────┤
-│ [D] DETAIL SECTION - Selected Asset (default: HYPE)             │
+│ [D] ALERTS - Recent alerts (max 5 from last 24h)                │
+├─────────────────────────────────────────────────────────────────┤
+│ [E] DETAIL SECTION - Selected Asset (default: HYPE)             │
 │ ┌─────────────────────────────────────────────────────────────┐ │
 │ │ CAS Time Series (6h)                                        │ │
 │ ├─────────────────────────────────────────────────────────────┤ │
@@ -158,7 +161,61 @@ for i, asset in enumerate(["HYPE", "BTC", "ETH"]):
 
 ---
 
-### C) Alerts Panel (Compact)
+### C) Current Positioning Panel (Context Only)
+
+**Purpose:**
+Display what top wallets are currently holding (absolute positions), separate from behavioral signals which track changes over time.
+
+**Display rules:**
+- Three side-by-side panels using `st.columns(3)`, one per asset
+- Visual treatment: Green tint if majority long, red tint if majority short, gray if balanced/flat
+- This is context only - no playbook implications
+- Data refreshes with each snapshot (60s cadence)
+
+**Metrics per asset:**
+
+| Metric | Display | Source |
+|--------|---------|--------|
+| Net Exposure | "+1.2M HYPE" or "-500K BTC" | Sum of all position_szi for asset |
+| Long/Short Ratio | "65% / 35%" | Percentage of positioned wallets (excludes flat) |
+| Positioning Breakdown | "120L / 50S / 30F" | Count of long/short/flat wallets |
+| Top 10 Concentration | "72.5%" | % of total exposure held by top 10 wallets |
+
+**Data source:**
+Query `wallet_snapshots` for most recent `snapshot_ts`:
+- Long: `position_szi > 0`
+- Short: `position_szi < 0`
+- Flat: `position_szi = 0` or NULL
+
+**Visual treatment:**
+
+| Condition | Background Color |
+|-----------|-----------------|
+| Long majority (>60% of positioned) | Green (muted: #2d5016) |
+| Short majority (>60% of positioned) | Red (muted: #5c1a1a) |
+| Balanced (40-60%) or mostly flat | Gray (#404040) |
+
+**Concentration warning:**
+If `top10_concentration > 70%`, display a warning indicator (high concentration means positioning is not diversified).
+
+**Implementation:**
+```python
+from src.ui.components.positioning_panel import render_positioning_section
+
+# In main app flow, after asset panels, before alerts
+render_positioning_section(['HYPE', 'BTC', 'ETH'])
+```
+
+**Important notes:**
+- This panel shows current holdings, NOT behavioral changes
+- Does NOT affect playbook logic or alerts
+- Separate from signal computation (no integration with CAS/Dispersion/Exit)
+- Display-only feature for additional context
+- Include caption: "Context only - not a playbook signal"
+
+---
+
+### D) Alerts Panel (Compact)
 
 **Display rules:**
 - Show up to **5 most recent alerts from the last 24 hours**
@@ -199,7 +256,7 @@ else:
 
 ---
 
-### D) Detail Section (Below the Fold)
+### E) Detail Section (Below the Fold)
 
 **Asset selection:**
 - Default: HYPE

@@ -223,3 +223,102 @@ def check_system_stale_alert_active() -> bool:
         result = cur.fetchone()
 
     return result['is_active'] if result else False
+
+
+def get_current_positioning(asset: str) -> Optional[Dict]:
+    """
+    Get current wallet positioning for an asset.
+
+    This shows what wallets are actually holding, not behavioral changes.
+    Computed from the most recent snapshot.
+
+    Args:
+        asset: Asset symbol (HYPE, BTC, ETH)
+
+    Returns:
+        Dictionary with positioning metrics:
+        - snapshot_ts: Timestamp of snapshot
+        - net_exposure: Total long szi - total short szi
+        - long_count: Number of wallets with long positions
+        - short_count: Number of wallets with short positions
+        - flat_count: Number of wallets with no position
+        - total_wallets: Total wallets in snapshot
+        - long_pct: Percentage of positioned wallets that are long
+        - short_pct: Percentage of positioned wallets that are short
+        - top10_concentration: Percentage of total exposure held by top 10
+        - top10_net_exposure: Net exposure of top 10 wallets
+    """
+    query = """
+        WITH latest_snapshot AS (
+            SELECT MAX(snapshot_ts) as ts
+            FROM wallet_snapshots
+            WHERE asset = %(asset)s
+        ),
+        wallet_positions AS (
+            SELECT
+                ws.snapshot_ts,
+                ws.wallet_id,
+                ws.position_szi,
+                CASE
+                    WHEN ws.position_szi > 0 THEN 'long'
+                    WHEN ws.position_szi < 0 THEN 'short'
+                    ELSE 'flat'
+                END as position_type,
+                ABS(ws.position_szi) as abs_position
+            FROM wallet_snapshots ws
+            INNER JOIN latest_snapshot ls ON ws.snapshot_ts = ls.ts
+            WHERE ws.asset = %(asset)s
+        ),
+        top_10 AS (
+            SELECT
+                wallet_id,
+                position_szi
+            FROM wallet_positions
+            ORDER BY abs_position DESC
+            LIMIT 10
+        )
+        SELECT
+            wp.snapshot_ts,
+            COALESCE(SUM(wp.position_szi), 0) as net_exposure,
+            COUNT(*) FILTER (WHERE wp.position_type = 'long') as long_count,
+            COUNT(*) FILTER (WHERE wp.position_type = 'short') as short_count,
+            COUNT(*) FILTER (WHERE wp.position_type = 'flat') as flat_count,
+            COUNT(*) as total_wallets,
+            COALESCE(SUM(t10.position_szi), 0) as top10_net_exposure,
+            COALESCE(SUM(ABS(t10.position_szi)), 0) as top10_total_exposure,
+            COALESCE(SUM(wp.abs_position), 0) as total_exposure
+        FROM wallet_positions wp
+        LEFT JOIN top_10 t10 ON wp.wallet_id = t10.wallet_id
+        GROUP BY wp.snapshot_ts
+    """
+
+    with db.get_cursor() as cur:
+        cur.execute(query, {'asset': asset})
+        result = cur.fetchone()
+
+    if not result or result['total_wallets'] == 0:
+        return None
+
+    # Calculate percentages
+    positioned_wallets = result['long_count'] + result['short_count']
+    long_pct = (result['long_count'] / positioned_wallets * 100) if positioned_wallets > 0 else 0
+    short_pct = (result['short_count'] / positioned_wallets * 100) if positioned_wallets > 0 else 0
+
+    # Calculate concentration (percentage of total exposure held by top 10)
+    top10_concentration = (
+        result['top10_total_exposure'] / result['total_exposure'] * 100
+        if result['total_exposure'] > 0 else 0
+    )
+
+    return {
+        'snapshot_ts': result['snapshot_ts'],
+        'net_exposure': float(result['net_exposure']),
+        'long_count': result['long_count'],
+        'short_count': result['short_count'],
+        'flat_count': result['flat_count'],
+        'total_wallets': result['total_wallets'],
+        'long_pct': round(long_pct, 1),
+        'short_pct': round(short_pct, 1),
+        'top10_concentration': round(top10_concentration, 1),
+        'top10_net_exposure': float(result['top10_net_exposure'])
+    }
